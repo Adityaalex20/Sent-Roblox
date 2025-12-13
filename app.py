@@ -6,7 +6,6 @@ import requests
 from io import BytesIO
 import nltk
 from nltk.corpus import stopwords
-from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 
 # =========================
 # SETUP
@@ -18,72 +17,118 @@ st.set_page_config(
     layout="wide"
 )
 
+# =========================
+# SESSION STATE
+# =========================
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# =========================
+# CSS
+# =========================
 st.markdown(
     """
     <style>
-    /* ================= FORCE GLOBAL ================= */
     html, body, [class*="css"] {
         background-color: #0f1115 !important;
         color: #e6e6e6 !important;
     }
 
-    /* ================= TEXT AREA (INI SUMBER MERAH) ================= */
     div[data-baseweb="textarea"] textarea {
         background-color: #1b1e24 !important;
         color: #e6e6e6 !important;
         border: 1px solid #555 !important;
     }
 
-    div[data-baseweb="textarea"] textarea:focus {
-        border-color: #777 !important;
-        box-shadow: 0 0 0 2px rgba(120,120,120,0.6) !important;
-        outline: none !important;
-    }
-
-    /* ================= BUTTON ================= */
     div.stButton > button {
         background-color: #1e1e1e !important;
         color: #ffffff !important;
         border: 1px solid #555 !important;
     }
 
-    div.stButton > button:hover {
-        background-color: #2a2a2a !important;
-        border-color: #777 !important;
-    }
-
-    div.stButton > button:focus {
-        box-shadow: 0 0 0 2px rgba(120,120,120,0.6) !important;
-        outline: none !important;
-    }
-
-    /* ================= SIDEBAR ================= */
-    section[data-testid="stSidebar"] {
-        background-color: #14161a !important;
-        border-right: 1px solid #2a2a2a !important;
-    }
-
-    /* ================= CARD ================= */
     .card {
-        background-color: #1b1e24 !important;
+        background-color: #1b1e24;
         padding: 1.2rem;
         border-radius: 10px;
         margin-top: 1rem;
         box-shadow: 0 0 15px rgba(0,0,0,0.4);
     }
 
-    .card-positive {
-        border-left: 6px solid #4caf50 !important;
+    .card-positive { border-left: 6px solid #4caf50; }
+    .card-negative { border-left: 6px solid #b23b3b; }
+
+    .conf-card {
+        background: linear-gradient(180deg, #1b1e24, #16191f);
+        border: 1px solid #2a2a2a;
+        border-radius: 14px;
+        padding: 1.2rem 1.5rem;
+        margin-top: 1rem;
     }
 
-    .card-negative {
-        border-left: 6px solid #b23b3b !important;
+    .conf-title {
+        font-size: 14px;
+        color: #9aa0a6;
+        margin-bottom: 0.3rem;
     }
+
+    .conf-value {
+        font-size: 34px;
+        font-weight: 800;
+        margin-bottom: 0.2rem;
+    }
+
+    .conf-desc {
+        font-size: 13px;
+        color: #b0b0b0;
+    }
+        /* ===== SIDEBAR ===== */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #14161a, #0f1115) !important;
+        border-right: 1px solid #2a2a2a !important;
+        padding-top: 1.5rem;
+    }
+
+    /* Judul sidebar */
+    .sidebar-title {
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+
+    /* Deskripsi sidebar */
+    .sidebar-desc {
+        font-size: 13px;
+        color: #9aa0a6;
+        margin-bottom: 1rem;
+    }
+
+    /* Radio menu */
+    div[role="radiogroup"] > label {
+        background-color: #1b1e24;
+        padding: 0.6rem 0.8rem;
+        border-radius: 8px;
+        margin-bottom: 0.4rem;
+        border: 1px solid #2a2a2a;
+        transition: all 0.2s ease-in-out;
+    }
+
+    /* Hover menu */
+    div[role="radiogroup"] > label:hover {
+        background-color: #22262d;
+        border-color: #3a3f47;
+    }
+
+    /* Selected menu */
+    div[role="radiogroup"] > label[data-checked="true"] {
+        background-color: #262b33;
+        border-left: 4px solid #4caf50;
+        font-weight: 600;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
 )
-
 
 # =========================
 # LOAD MODEL & DATA
@@ -93,142 +138,338 @@ tfidf = joblib.load("tfidf_vectorizer.joblib")
 df = pd.read_csv("dataset.csv")
 
 # =========================
-# PREPROCESSING (INPUT USER)
+# PREPROCESSING
 # =========================
-stop_words = stopwords.words('indonesian')
+stop_words = set(stopwords.words('indonesian'))
+
+# PENTING: JANGAN HAPUS KATA NEGASI
+negation_words = {"tidak", "nggak", "ga", "gak", "bukan"}
+stop_words = stop_words - negation_words
+
 
 url_kamus = "https://github.com/analysisdatasentiment/kamus_kata_baku/raw/main/kamuskatabaku.xlsx"
 kamus_data = pd.read_excel(BytesIO(requests.get(url_kamus).content))
 kamus = dict(zip(kamus_data['tidak_baku'], kamus_data['kata_baku']))
 
-def preprocess(text):
-    if not isinstance(text, str):
-        return ""
+negation_words = {"tidak", "nggak", "ga", "gak", "bukan"}
 
+def preprocess(text):
     text = re.sub(r'https?://\S+|www\.\S+', '', text)
-    text = re.sub(r'@\w+', '', text)
-    text = re.sub(r'<.*?>', '', text)
     text = re.sub(r'[^a-zA-Z\s]', '', text)
     text = text.lower()
 
     tokens = text.split()
-    tokens = [kamus.get(word, word) for word in tokens]
-    tokens = [word for word in tokens if word not in stop_words]
+    tokens = [kamus.get(w, w) for w in tokens]
 
-    return " ".join(tokens)
+    result_tokens = []
+    skip_next = False
+
+    for i in range(len(tokens)):
+        if skip_next:
+            skip_next = False
+            continue
+
+        # HANDLE NEGASI
+        if tokens[i] in negation_words and i + 1 < len(tokens):
+            negated_word = f"neg_{tokens[i+1]}"
+            result_tokens.append(negated_word)
+            skip_next = True
+        else:
+            if tokens[i] not in stop_words:
+                result_tokens.append(tokens[i])
+
+    return " ".join(result_tokens)
+
+
+# =========================
+# LEXICON (UNTUK HIGHLIGHT)
+# =========================
+custom_positive_game = {
+    "bagus","keren","mantap","seru","asyik","lancar","smooth",
+    "worthit","recommended","puas","stabil", "bagus", "keren", "mantap", "seru", "asyik",
+    "enak", "lancar", "smooth", "ringan",
+    "oke", "ok", "recommended", "rekomen",
+    "worthit", "worth", "top", "best",
+    "suka", "senang", "puas",
+    "stabil", "halus",
+    "grafisbagus", "grafiskeren",
+    "rame", "ramai",
+    "updatebagus", "makinbagus", "baik", "mudah"
+}
+
+custom_negative_game = {
+    "burik","bug","lag","lemot","error","crash","ngehang",
+    "parah","rusak","ampas","payah","delay","kecewa","neg_suka", "neg_bagus", "neg_keren", "neg_mantap", "neg_seru", "neg_asyik",
+    "neg_enak", "neg_lancar", "neg_smooth", "neg_ringan",    "burik", "jelek", "jele", "jlek", "parah", "rusak", "patah",
+    "bug", "buggy", "lag", "laggy", "lemot", "lelet", "ngelag"
+    "error", "eror", "crash", "freeze", "ngehang",
+    "ngelag", "delay", "forceclose",
+    "ampas", "payah", "ngaco", "kacau", "acakadut",
+    "bosen", "bosan", "ngebosenin", "kecewa",
+    "nyebelin", "ngeselin", "ribet", "rempong",
+    "gabisa", "gajelas", "ga_jelas",
+    "dc", "disconnect", "serverdown", "maintenance",
+    "mahal", "paytowin", "p2w", "iklan", "iklanbanyak",
+    "hack", "cheat", "curang", "akunilang", "kehack", "haram", "bau", "tai", "berat", "lama",
+    "muak", "gls", "uninstall", "cape", "capek"
+}
+
+def highlight_words(text):
+    result = []
+    for w in text.split():
+        if w in custom_positive_game:
+            result.append(f"<span style='color:#4caf50;font-weight:600'>{w}</span>")
+        elif w in custom_negative_game:
+            result.append(f"<span style='color:#e57373;font-weight:600'>{w}</span>")
+        else:
+            result.append(w)
+    return " ".join(result)
 
 # =========================
 # HEADER
 # =========================
-st.title("🎮 Analisis Sentimen Review Game Roblox")
-st.caption("Metode: Multinomial Naive Bayes + SMOTE")
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(90deg, #1f2933, #111827);
+        padding: 1.8rem;
+        border-radius: 16px;
+        text-align: center;
+        box-shadow: 0 0 25px rgba(0,0,0,0.4);
+        margin-bottom: 2rem;
+    ">
+        <h1 style="margin:0; font-weight:800;">
+            Analisis Sentimen Ulasan Game Roblox
+        </h1>
+        <p style="margin-top:6px; color:#c7c7c7;">
+            Menggunakan Multinomial Naive Bayes dan SMOTE
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["Prediksi Sentimen", "Dataset", "Visualisasi", "Metodologi"]
+# =========================
+# SIDEBAR MENU
+# =========================
+st.sidebar.markdown(
+    """
+    <div class="sidebar-title">📊 Dashboard</div>
+    <div class="sidebar-desc">
+        Analisis sentimen ulasan game Roblox
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+menu = st.sidebar.radio(
+    "",
+    [
+        "🎯 Prediksi Sentimen",
+        "📂 Dataset",
+        "📈 Visualisasi",
+        "📘 Metodologi"
+    ]
 )
 
 # =========================
 # PREDIKSI
 # =========================
-if menu == "Prediksi Sentimen":
+if menu == "🎯 Prediksi Sentimen":
     st.subheader("Prediksi Sentimen Review")
 
     text = st.text_area(
-        "Masukkan review game Roblox:",
-        height=150,
-        placeholder="Contoh: gamenya bagus"
+        "Masukkan Review",
+        height=170,
+        placeholder="Contoh: game nya seru dan bagus banget!"
     )
 
-    if st.button("Prediksi"):
+    if st.button("🔍 Analisis Sentimen"):
         if text.strip() == "":
-            st.warning("Teks tidak boleh kosong.")
+            st.warning("Review tidak boleh kosong.")
         else:
-            clean_text = preprocess(text)
-
-            if len(clean_text.split()) < 2:
-                st.warning("Masukkan minimal 2 kata agar prediksi lebih akurat.")
-            else:
+            with st.spinner("Menganalisis sentimen..."):
+                clean_text = preprocess(text)
                 vector = tfidf.transform([clean_text])
                 prediction = model.predict(vector)[0]
+                proba = model.predict_proba(vector)[0]
+                confidence = max(proba) * 100
 
-                if prediction == "Positif":
-                    st.markdown(
-                        """
-                        <div class="card card-positive">
-                            <h2>✅ Sentimen POSITIF</h2>
-                            <p>Review menunjukkan respon positif terhadap game Roblox.</p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown(
-                        """
-                        <div class="card card-negative">
-                            <h2>❌ Sentimen NEGATIF</h2>
-                            <p>Review menunjukkan respon negatif terhadap game Roblox.</p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+            st.session_state.history.append({
+                "Review": text,
+                "Sentiment": prediction,
+                "Confidence (%)": round(confidence, 2)
+            })
 
+            card_class = "card-positive" if prediction == "Positif" else "card-negative"
+            emoji = "😊" if prediction == "Positif" else "😞"
+
+            st.markdown(
+                f"""
+                <div class="card {card_class}">
+                    <h2>{emoji} {prediction} ({confidence:.2f}%)</h2>
+                    <p>Hasil analisis sentimen berdasarkan model.</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # ===== CONFIDENCE INTERPRETATION =====
+            if confidence >= 75:
+                conf_text = "Model sangat yakin terhadap hasil prediksi."
+            elif confidence >= 60:
+                conf_text = "Model cukup yakin terhadap hasil prediksi."
+            else:
+                conf_text = "Model kurang yakin, hasil perlu ditinjau."
+
+            st.markdown(
+                f"""
+                <div class="conf-card">
+                    <div class="conf-title">Confidence Score</div>
+                    <div class="conf-value">{confidence:.2f}%</div>
+                    <div class="conf-desc">{conf_text}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.progress(int(confidence))
+
+            # ===== HIGHLIGHT REVIEW =====
+    if st.session_state.history:
+        st.subheader("Riwayat Prediksi")
+
+        for idx, item in enumerate(st.session_state.history):
+            col1, col2, col3, col4 = st.columns([5, 2, 2, 1])
+
+            with col1:
+                st.write(item["Review"])
+            with col2:
+                st.write(item["Sentiment"])
+            with col3:
+                st.write(f'{item["Confidence (%)"]}%')
+            with col4:
+                if st.button("❌", key=f"del_{idx}"):
+                    st.session_state.history.pop(idx)
+                    st.rerun()
+
+        st.divider()
+
+        if st.button("🗑️ Hapus Semua Riwayat"):
+            st.session_state.history = []
+            st.rerun()
 # =========================
-# DATASET (PAGINATION)
+# DATASET
 # =========================
-elif menu == "Dataset":
+elif menu == "📂 Dataset":
     st.subheader("Preview Dataset")
-
     preview_df = df[['steming_data', 'Sentiment']].copy()
     preview_df.columns = ['Review', 'Sentiment']
-
-    page_size = 100
-    total_pages = (len(preview_df) // page_size) + 1
-
-    if "page" not in st.session_state:
-        st.session_state.page = 1
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if st.button("⬅️ Prev") and st.session_state.page > 1:
-            st.session_state.page -= 1
-    with col3:
-        if st.button("Next ➡️") and st.session_state.page < total_pages:
-            st.session_state.page += 1
-
-    start = (st.session_state.page - 1) * page_size
-    end = start + page_size
-
-    st.dataframe(preview_df.iloc[start:end], use_container_width=True)
-    st.caption(f"Halaman {st.session_state.page} dari {total_pages}")
+    st.dataframe(preview_df, use_container_width=True)
 
 # =========================
 # VISUALISASI
 # =========================
-elif menu == "Visualisasi":
+elif menu == "📈 Visualisasi":
     st.subheader("Visualisasi Distribusi Sentimen")
 
+    # =========================
+    # METRIC SUMMARY
+    # =========================
+    total_data = len(df)
+    total_pos = len(df[df["Sentiment"] == "Positif"])
+    total_neg = len(df[df["Sentiment"] == "Negatif"])
+
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Data", len(df))
-    col2.metric("Positif", len(df[df['Sentiment'] == 'Positif']))
-    col3.metric("Negatif", len(df[df['Sentiment'] == 'Negatif']))
 
-    st.bar_chart(df['Sentiment'].value_counts())
+    with col1:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div style="font-size:14px;color:#9aa0a6;">Total Data</div>
+                <div style="font-size:28px;font-weight:700;">{total_data}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
+    with col2:
+        st.markdown(
+            f"""
+            <div class="card card-positive">
+                <div style="font-size:14px;color:#9aa0a6;">Sentimen Positif</div>
+                <div style="font-size:28px;font-weight:700;">{total_pos}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with col3:
+        st.markdown(
+            f"""
+            <div class="card card-negative">
+                <div style="font-size:14px;color:#9aa0a6;">Sentimen Negatif</div>
+                <div style="font-size:28px;font-weight:700;">{total_neg}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # =========================
+    # DISTRIBUSI SENTIMEN
+    # =========================
+    st.markdown("### Distribusi Sentimen")
+
+    sentiment_count = df["Sentiment"].value_counts().reset_index()
+    sentiment_count.columns = ["Sentiment", "Jumlah"]
+    sentiment_count["Persentase"] = (
+        sentiment_count["Jumlah"] / sentiment_count["Jumlah"].sum() * 100
+    ).round(2)
+
+    st.dataframe(
+        sentiment_count,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # =========================
+    # BAR CHART (MINIMALIS)
+    # =========================
+    st.markdown("### Grafik Jumlah Sentimen")
+
+    chart_df = sentiment_count.set_index("Sentiment")[["Jumlah"]]
+    st.bar_chart(chart_df)
+
+    # =========================
+    # INTERPRETASI
+    # =========================
+    dominan = sentiment_count.iloc[0]["Sentiment"]
+
+    st.info(
+        f"""
+        **Interpretasi:**
+        Mayoritas ulasan pengguna cenderung bersentimen **{dominan}**.
+        Hal ini menunjukkan persepsi pengguna terhadap game Roblox
+        didominasi oleh sentimen tersebut berdasarkan dataset yang dianalisis.
+        """
+    )
+    
 # =========================
 # METODOLOGI
 # =========================
 else:
-    st.subheader("Metodologi Penelitian")
     st.markdown("""
-    1. Scraping review game Roblox dari Google Play Store  
-    2. Preprocessing teks (cleaning, normalisasi, stopword, stemming)  
-    3. Pembobotan kata menggunakan TF-IDF  
-    4. Penyeimbangan data menggunakan SMOTE  
-    5. Klasifikasi menggunakan Multinomial Naive Bayes  
+    **Tahapan Penelitian:**
+    1. Scraping review Roblox  
+    2. Preprocessing teks  
+    3. Pembobotan TF-IDF  
+    4. Penyeimbangan data dengan SMOTE  
+    5. Klasifikasi Multinomial Naive Bayes  
     """)
-
-    st.info(
-        "Aplikasi menggunakan tema gelap akademik untuk meningkatkan kenyamanan visual "
-        "dan hasil prediksi ditampilkan dalam bentuk card agar mudah dipahami."
-    )
+    st.markdown("""
+hasil penelitian menunjukkan model mencapai akurasi yang baik dalam menganalisis sentimen ulasan game Roblox. Dengan antarmuka yang user-friendly, aplikasi ini memudahkan pengguna untuk memahami opini umum terhadap game tersebut.
+    """)
