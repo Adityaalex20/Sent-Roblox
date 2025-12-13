@@ -1,8 +1,12 @@
 streamlit
-scikit-learn
 pandas
 numpy
+scikit-learn
 joblib
+nltk
+Sastrawi
 imbalanced-learn
+requests
+openpyxl
 matplotlib
 seaborn
