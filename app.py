@@ -18,12 +18,6 @@ st.set_page_config(
 )
 
 # =========================
-# SESSION STATE
-# =========================
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# =========================
 # CSS
 # =========================
 st.markdown(
@@ -124,6 +118,93 @@ st.markdown(
         border-left: 4px solid #4caf50;
         font-weight: 600;
     }
+    .method-card {
+        background-color: #16191f;
+        border: 1px solid #2a2a2a;
+        border-radius: 14px;
+        padding: 1.5rem;
+        margin-bottom: 1.2rem;
+    }
+
+    .method-title {
+        font-size: 17px;
+        font-weight: 700;
+        margin-bottom: 0.6rem;
+    }
+
+    .method-text {
+        font-size: 15px;
+        line-height: 1.8;
+        color: #d1d1d1;
+    }
+
+    .method-step {
+        background-color: #1b1e24;
+        border-left: 4px solid #4caf50;
+        padding: 0.8rem 1rem;
+        border-radius: 8px;
+        margin-bottom: 0.7rem;
+    }
+
+    .method-note {
+        font-size: 14px;
+        color: #b0b0b0;
+    }
+        /* ===== LOADING ANALYSIS ===== */
+    .loading-box {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 1rem 1.2rem;
+        background: #16191f;
+        border-radius: 12px;
+        border: 1px solid #2a2a2a;
+        box-shadow: 0 0 20px rgba(0,0,0,0.35);
+        margin-top: 1rem;
+    }
+
+    .loader {
+        width: 26px;
+        height: 26px;
+        border: 3px solid #2a2a2a;
+        border-top: 3px solid #4caf50;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+        font-size: 14px;
+        color: #c7c7c7;
+    }
+
+    .highlight-box {
+    background-color: #16191f;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 1.2rem 1.5rem;
+    margin-top: 1rem;
+}
+
+    .highlight-title {
+        font-size: 14px;
+        color: #9aa0a6;
+        margin-bottom: 0.6rem;
+    }
+
+    .word-pos {
+        color: #4caf50;
+        font-weight: 600;
+    }
+
+    .word-neg {
+        color: #e57373;
+        font-weight: 600;
+    }
 
     </style>
     """,
@@ -199,7 +280,7 @@ custom_positive_game = {
 
 custom_negative_game = {
     "burik","bug","lag","lemot","error","crash","ngehang",
-    "parah","rusak","ampas","payah","delay","kecewa","neg_suka", "neg_bagus", "neg_keren", "neg_mantap", "neg_seru", "neg_asyik",
+    "parah","rusak","ampas","payah","delay","kecewa","neg_suka", "neg_bagus", "neg_ok", "neg_guna", "neg_keren", "neg_mantap", "neg_seru", "neg_asyik",
     "neg_enak", "neg_lancar", "neg_smooth", "neg_ringan",    "burik", "jelek", "jele", "jlek", "parah", "rusak", "patah",
     "bug", "buggy", "lag", "laggy", "lemot", "lelet", "ngelag"
     "error", "eror", "crash", "freeze", "ngehang",
@@ -288,19 +369,28 @@ if menu == "🎯 Prediksi Sentimen":
         if text.strip() == "":
             st.warning("Review tidak boleh kosong.")
         else:
-            with st.spinner("Menganalisis sentimen..."):
-                clean_text = preprocess(text)
-                vector = tfidf.transform([clean_text])
-                prediction = model.predict(vector)[0]
-                proba = model.predict_proba(vector)[0]
-                confidence = max(proba) * 100
+            loading_placeholder = st.empty()
 
-            st.session_state.history.append({
-                "Review": text,
-                "Sentiment": prediction,
-                "Confidence (%)": round(confidence, 2)
-            })
+            loading_placeholder.markdown(
+                """
+                <div class="loading-box">
+                    <div class="loader"></div>
+                    <div class="loading-text">Menganalisis sentimen, mohon tunggu...</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
+            import time
+            time.sleep(0.6)  # ⬅️ INI KUNCI SUPAYA KELIATAN
+
+            clean_text = preprocess(text)
+            vector = tfidf.transform([clean_text])
+            prediction = model.predict(vector)[0]
+            proba = model.predict_proba(vector)[0]
+            confidence = max(proba) * 100
+
+            loading_placeholder.empty()
             card_class = "card-positive" if prediction == "Positif" else "card-negative"
             emoji = "😊" if prediction == "Positif" else "😞"
 
@@ -309,6 +399,17 @@ if menu == "🎯 Prediksi Sentimen":
                 <div class="card {card_class}">
                     <h2>{emoji} {prediction} ({confidence:.2f}%)</h2>
                     <p>Hasil analisis sentimen berdasarkan model.</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # ===== HIGHLIGHT KATA =====
+            st.markdown(
+                f"""
+                <div class="highlight-box">
+                    <div class="highlight-title">🔎 Highlight Kata (Hasil Preprocessing)</div>
+                    <div>{highlight_words(clean_text)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -332,32 +433,8 @@ if menu == "🎯 Prediksi Sentimen":
                 """,
                 unsafe_allow_html=True
             )
-
             st.progress(int(confidence))
 
-            # ===== HIGHLIGHT REVIEW =====
-    if st.session_state.history:
-        st.subheader("Riwayat Prediksi")
-
-        for idx, item in enumerate(st.session_state.history):
-            col1, col2, col3, col4 = st.columns([5, 2, 2, 1])
-
-            with col1:
-                st.write(item["Review"])
-            with col2:
-                st.write(item["Sentiment"])
-            with col3:
-                st.write(f'{item["Confidence (%)"]}%')
-            with col4:
-                if st.button("❌", key=f"del_{idx}"):
-                    st.session_state.history.pop(idx)
-                    st.rerun()
-
-        st.divider()
-
-        if st.button("🗑️ Hapus Semua Riwayat"):
-            st.session_state.history = []
-            st.rerun()
 # =========================
 # DATASET
 # =========================
@@ -462,14 +539,107 @@ elif menu == "📈 Visualisasi":
 # METODOLOGI
 # =========================
 else:
-    st.markdown("""
-    **Tahapan Penelitian:**
-    1. Scraping review Roblox  
-    2. Preprocessing teks  
-    3. Pembobotan TF-IDF  
-    4. Penyeimbangan data dengan SMOTE  
-    5. Klasifikasi Multinomial Naive Bayes  
-    """)
-    st.markdown("""
-hasil penelitian menunjukkan model mencapai akurasi yang baik dalam menganalisis sentimen ulasan game Roblox. Dengan antarmuka yang user-friendly, aplikasi ini memudahkan pengguna untuk memahami opini umum terhadap game tersebut.
-    """)
+    st.subheader("Metodologi Penelitian")
+
+    # =========================
+    # PENDAHULUAN
+    # =========================
+    st.markdown(
+        """
+        <div class="method-card">
+            <div class="method-title">🎯 Tujuan Penelitian</div>
+            <div class="method-text">
+                Penelitian ini bertujuan untuk menganalisis sentimen ulasan pengguna
+                terhadap game <strong>Roblox</strong> dengan mengklasifikasikan
+                ulasan ke dalam dua kategori sentimen, yaitu <strong>positif</strong>
+                dan <strong>negatif</strong>, menggunakan pendekatan
+                <strong>machine learning</strong>.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        """
+        <div class="method-card">
+            <div class="method-title">🔄 Alur Penelitian</div>
+            <div class="method-text">
+                Alur penelitian ini terdiri dari tahap-tahap sebagai berikut:
+                <ul>
+                    <li>Pengumpulan Data</li>
+                    <li>Processing Data</li>
+                    <li>Representasi Teks</li>
+                    <li>Penyeimbangan Data</li>
+                    <li>Klasifikasi Sentimen</li>
+                </ul>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # =========================
+    # MODEL
+    # =========================
+    st.markdown(
+        """
+        <div class="method-card">
+            <div class="method-title">🤖 Model Klasifikasi</div>
+            <div class="method-text">
+                Algoritma <strong>Multinomial Naive Bayes</strong> dipilih karena
+                memiliki performa yang baik dalam klasifikasi teks dan efisien
+                dalam pengolahan data berbasis frekuensi kata.
+                Model dilatih menggunakan data yang telah diseimbangkan
+                dengan SMOTE untuk meningkatkan akurasi dan generalisasi.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # =========================
+    # CONFIDENCE SCORE
+    # =========================
+    st.markdown(
+        """
+        <div class="method-card">
+            <div class="method-title">📊 Confidence Score</div>
+            <div class="method-text">
+                Confidence score diperoleh dari probabilitas prediksi yang dihasilkan
+                oleh model Multinomial Naive Bayes. Nilai ini menunjukkan tingkat
+                keyakinan model terhadap hasil klasifikasi sentimen yang diberikan.
+            </div>
+            <div class="method-note">
+                Semakin tinggi nilai confidence, semakin besar keyakinan model terhadap
+                hasil prediksi yang dihasilkan.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # =========================
+    # KETERBATASAN
+    # =========================
+    st.markdown(
+        """
+        <div class="method-card">
+            <div class="method-title">⚠️ Keterbatasan Penelitian</div>
+            <ul class="method-text">
+                <li>Model belum mampu menangkap konteks kalimat kompleks atau sarkasme.</li>
+                <li>Hasil analisis dipengaruhi oleh kualitas data dan proses pelabelan.</li>
+                <li>Confidence score bersifat probabilistik, bukan kebenaran absolut.</li>
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        """
+        <div style="text-align:center; color:#6b7280; margin-top:2rem;">
+            © 2025 Analisis Sentimen Roblox
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
